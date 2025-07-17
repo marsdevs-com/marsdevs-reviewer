@@ -216,7 +216,7 @@ curl https://api.anthropic.com/v1/messages \
 
 ```bash
 # Clone and setup
-git clone https://github.com/marsdevs/marsdevs-reviewer
+git clone http://github.com/marsdevs-com/marsdevs-reviewer/
 cd marsdevs-reviewer
 python3 -m venv venv
 source venv/bin/activate
@@ -317,7 +317,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 <p align="center">
   <b>🌟 Star this repo if you find it helpful!</b><br>
-  <a href="https://github.com/marsdevs/marsdevs-reviewer/issues">Report Bug</a> •
-  <a href="https://github.com/marsdevs/marsdevs-reviewer/issues">Request Feature</a> •
-  <a href="https://github.com/marsdevs/marsdevs-reviewer/discussions">Discussions</a>
+  <a href="http://github.com/marsdevs-com/marsdevs-reviewer/issues">Report Bug</a> •
+  <a href="http://github.com/marsdevs-com/marsdevs-reviewer/issues">Request Feature</a> •
+  <a href="http://github.com/marsdevs-com/marsdevs-reviewer/discussions">Discussions</a>
 </p>

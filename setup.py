@@ -17,10 +17,10 @@ setup(
     description="AI-powered code review tool that learns from your repository",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/marsdevs/marsdevs-reviewer",
+    url="http://github.com/marsdevs-com/marsdevs-reviewer/",
     project_urls={
-        "Bug Tracker": "https://github.com/marsdevs/marsdevs-reviewer/issues",
-        "Documentation": "https://github.com/marsdevs/marsdevs-reviewer#readme",
+        "Bug Tracker": "http://github.com/marsdevs-com/marsdevs-reviewer/issues",
+        "Documentation": "http://github.com/marsdevs-com/marsdevs-reviewer/#readme",
     },
     classifiers=[
         "Development Status :: 4 - Beta",
@@ -47,5 +47,4 @@ setup(
         ],
     },
     keywords="git pre-commit code-review ai conventions linting",
-    include_package_data=True,
 )
