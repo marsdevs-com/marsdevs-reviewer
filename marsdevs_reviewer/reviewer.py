@@ -35,6 +35,14 @@ except ImportError:
     debug_conventions = lambda *args, **kwargs: None
     create_debug_report = lambda e=None: str(e)
 
+# Import learning system
+try:
+    from .learning import LearningManager, ConventionExtractor, PatternMatcher
+    LEARNING_ENABLED = True
+except ImportError:
+    logger.warning("Learning system not available")
+    LEARNING_ENABLED = False
+
 
 @profile_time
 def get_staged_diff() -> str:
@@ -309,6 +317,25 @@ Git diff to review (only review + lines that are not file markers):
 def apply_fix(filepath: str, issue: Dict[str, any]) -> bool:
     """Apply a single fix to a file."""
     try:
+        logger.debug(f"Applying fix to {filepath}")
+        logger.debug(f"Issue type: {issue.get('type')}")
+        logger.debug(f"Current code: '{issue.get('current_code', '')}'")
+        logger.debug(f"Fixed code: '{issue.get('fixed_code', '')}'")
+        
+        # Check if file exists
+        if not os.path.exists(filepath):
+            print(f"Error: File '{filepath}' does not exist")
+            # Try to resolve relative path
+            if not os.path.isabs(filepath):
+                abs_path = os.path.abspath(filepath)
+                print(f"  - Trying absolute path: {abs_path}")
+                if os.path.exists(abs_path):
+                    filepath = abs_path
+                else:
+                    return False
+            else:
+                return False
+        
         # Read the current file content
         with open(filepath, 'r') as f:
             content = f.read()
@@ -337,6 +364,18 @@ def apply_fix(filepath: str, issue: Dict[str, any]) -> bool:
             return True
         else:
             print(f"Could not find the exact code to replace in {filepath}")
+            if not current_code:
+                print("  - No current_code provided in issue")
+            elif not fixed_code:
+                print("  - No fixed_code provided in issue")
+            else:
+                print(f"  - Looking for: '{current_code}'")
+                print(f"  - Code exists in file: {current_code in content}")
+                # Show similar lines for debugging
+                lines = content.split('\n')
+                for i, line in enumerate(lines, 1):
+                    if current_code.strip() in line:
+                        print(f"  - Similar line {i}: '{line}'")
             return False
 
     except Exception as e:
@@ -394,19 +433,29 @@ def format_review_output(review: Dict[str, any], fixes_applied: List[int]) -> Tu
     total_issues = len(review.get('issues', []))
     fixed_issues = len(fixes_applied)
 
+    # Count learned vs API issues
+    learned_count = sum(1 for issue in review.get('issues', []) if issue.get('learned', False))
+    api_count = total_issues - learned_count
+    
     output.append(f"Found {total_issues} convention issue(s)")
+    if learned_count > 0:
+        output.append(f"  - {learned_count} from learned patterns ✨")
+        output.append(f"  - {api_count} from AI analysis")
     output.append(f"Fixed: {fixed_issues} issue(s)")
     output.append(f"Severity: {review.get('severity', 'unknown').upper()}\n")
 
     for i, issue in enumerate(review.get('issues', []), 1):
         status = "✅ FIXED" if i in fixes_applied else "❌ NOT FIXED"
-        output.append(f"{i}. [{status}] {issue['type'].upper()}")
+        learned_tag = " [LEARNED]" if issue.get('learned', False) else ""
+        output.append(f"{i}. [{status}] {issue['type'].upper()}{learned_tag}")
         output.append(f"   File: {issue['file']}")
         if issue.get('line_start'):
             output.append(f"   Lines: {issue['line_start']}-{issue.get('line_end', issue['line_start'])}")
         if issue.get('convention_violated'):
             output.append(f"   Convention: {issue['convention_violated']}")
         output.append(f"   Issue: {issue['description']}")
+        if issue.get('confidence') and issue.get('learned'):
+            output.append(f"   Confidence: {issue['confidence']:.0%}")
         if i not in fixes_applied:
             output.append(f"   Fix: {issue.get('explanation', 'Match repository conventions')}\n")
 
@@ -467,6 +516,17 @@ def main():
         print("Running MarsDevs Code Reviewer...")
         logger.info("Starting MarsDevs Code Reviewer")
         
+        # Initialize learning system if available
+        learning_manager = None
+        pattern_matcher = None
+        if LEARNING_ENABLED:
+            try:
+                learning_manager = LearningManager()
+                pattern_matcher = PatternMatcher(learning_manager)
+                logger.info("Learning system initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize learning system: {e}")
+                
         # Debug git state if enabled
         debug_git_state()
 
@@ -490,6 +550,39 @@ def main():
 
         print("\n📋 Analyzing repository coding conventions...")
         logger.info(f"Analyzing conventions for {len(files_to_review)} files")
+
+        # Check for learned patterns first
+        learned_issues = []
+        api_needed = True
+        
+        if pattern_matcher:
+            logger.info("Checking learned patterns...")
+            learned_issues = pattern_matcher.find_issues_with_learned_patterns(diff, files_to_review)
+            
+            if learned_issues:
+                print(f"✨ Found {len(learned_issues)} issues using learned patterns!")
+                # If we have high confidence learned issues, we might skip API
+                high_confidence_issues = [i for i in learned_issues if i.get('confidence', 0) >= 0.8]
+                if high_confidence_issues and len(high_confidence_issues) == len(learned_issues):
+                    api_needed = False
+                    logger.info(f"Skipping API call - all {len(learned_issues)} issues resolved with learned patterns")
+
+        # Extract conventions if learning is enabled
+        if learning_manager and not learning_manager.learning_data:
+            try:
+                extractor = ConventionExtractor()
+                # Use all files in repo for initial learning
+                all_files = find_similar_files(files_to_review)
+                all_files_flat = []
+                for file_list in all_files.values():
+                    all_files_flat.extend(file_list)
+                
+                extracted_conventions = extractor.extract_from_files(all_files_flat[:20])  # Limit to 20 files
+                learning_manager.learning_data.conventions = extracted_conventions
+                learning_manager.save_learning()
+                logger.info("Extracted initial conventions from codebase")
+            except Exception as e:
+                logger.warning(f"Failed to extract conventions: {e}")
 
         # Find similar files to learn conventions
         similar_files = find_similar_files(files_to_review)
@@ -516,21 +609,42 @@ def main():
         # Debug conventions if enabled
         debug_conventions(conventions_context, similar_files)
 
-        # Check cache
-        cache_key = get_cache_key(diff, conventions_context[:1000])  # Use first 1000 chars for cache key
-        cached_review = load_cached_review(cache_key)
-
-        if cached_review:
-            logger.info("Using cached review results")
-            print("Using cached review results...")
-            review = cached_review
+        # If we found all issues with learned patterns, create review from them
+        if not api_needed and learned_issues:
+            review = {
+                'has_issues': True,
+                'severity': 'medium',
+                'issues': learned_issues,
+                'summary': f'Found {len(learned_issues)} issues based on learned repository patterns.'
+            }
+            # Update statistics
+            if learning_manager:
+                learning_manager.update_statistics(api_called=False)
         else:
-            print("🔍 Reviewing staged changes against repository conventions...")
-            logger.info("Sending review request to AI")
-            # Review with AI
-            review = review_code_with_conventions(diff, files_to_review, conventions_context)
-            # Save to cache
-            save_cached_review(cache_key, review)
+            # Check cache
+            cache_key = get_cache_key(diff, conventions_context[:1000])  # Use first 1000 chars for cache key
+            cached_review = load_cached_review(cache_key)
+
+            if cached_review:
+                logger.info("Using cached review results")
+                print("Using cached review results...")
+                review = cached_review
+            else:
+                print("🔍 Reviewing staged changes against repository conventions...")
+                logger.info("Sending review request to AI")
+                # Review with AI
+                review = review_code_with_conventions(diff, files_to_review, conventions_context)
+                # Save to cache
+                save_cached_review(cache_key, review)
+                
+                # Merge learned issues with API issues
+                if learned_issues:
+                    review['issues'] = learned_issues + review.get('issues', [])
+                    review['has_issues'] = True
+                
+                # Update statistics
+                if learning_manager:
+                    learning_manager.update_statistics(api_called=True)
 
         # If no issues, allow commit
         if not review.get('has_issues', False):
@@ -556,6 +670,19 @@ def main():
                 if apply_fix(issue['file'], issue):
                     fixes_applied.append(i)
                     print("✅ Fix applied successfully!")
+                    
+                    # Update learning system with accepted fix
+                    if learning_manager and not issue.get('learned', False):
+                        try:
+                            learning_manager.update_from_accepted_fix(
+                                issue_type=issue.get('type', 'convention'),
+                                original=issue.get('current_code', ''),
+                                fixed=issue.get('fixed_code', ''),
+                                file_path=issue['file']
+                            )
+                            logger.info("Updated learning from accepted fix")
+                        except Exception as e:
+                            logger.warning(f"Failed to update learning: {e}")
                 else:
                     print("❌ Failed to apply fix.")
             elif response == 's':
@@ -566,6 +693,19 @@ def main():
                 sys.exit(1)
             else:  # 'n'
                 print("Fix skipped.")
+                
+                # Update learning system with rejected fix
+                if learning_manager and not issue.get('learned', False):
+                    try:
+                        learning_manager.update_from_rejected_fix(
+                            issue_type=issue.get('type', 'convention'),
+                            original=issue.get('current_code', ''),
+                            fixed=issue.get('fixed_code', ''),
+                            file_path=issue['file']
+                        )
+                        logger.info("Updated learning from rejected fix")
+                    except Exception as e:
+                        logger.warning(f"Failed to update learning: {e}")
 
         # Re-stage all modified files to ensure consistency
         if fixes_applied:
@@ -576,6 +716,18 @@ def main():
         # Format and display final results
         should_allow, output = format_review_output(review, fixes_applied)
         print(output)
+        
+        # Display learning statistics if available
+        learned_count = sum(1 for issue in review.get('issues', []) if issue.get('learned', False))
+        if learning_manager and learned_count > 0:
+            try:
+                stats = learning_manager.get_statistics()
+                print("\n📊 Learning Statistics:")
+                print(f"   API calls saved: {stats['api_calls_saved']} ({stats['api_reduction_rate']:.0f}%)")
+                print(f"   Total patterns learned: {stats['total_patterns']}")
+                print(f"   High confidence patterns: {stats['high_confidence_patterns']}")
+            except Exception as e:
+                logger.debug(f"Failed to display stats: {e}")
 
         # Exit with appropriate code
         sys.exit(0 if should_allow else 1)

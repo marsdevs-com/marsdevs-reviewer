@@ -17,6 +17,7 @@ MarsDevs Code Reviewer is an intelligent Git pre-commit hook that automatically 
 ✅ **Interactive Fixes** - Accept or reject suggested changes  
 ✅ **Fast Reviews** - Smart caching for instant re-reviews  
 ✅ **Non-Intrusive** - Only reviews new changes, not existing code  
+✅ **Machine Learning** - Learns from your decisions to reduce API calls over time  
 
 ---
 
@@ -107,10 +108,27 @@ Apply this fix? (y)es / (n)o / (s)kip all / (q)uit: y
 | `marsdevs-reviewer install` | Install pre-commit hook in current repo |
 | `marsdevs-reviewer uninstall` | Remove pre-commit hook |
 | `marsdevs-reviewer review` | Manually review staged changes |
+| `marsdevs-reviewer stats` | Show learning statistics |
 | `marsdevs-reviewer clear-cache` | Clear the review cache |
+| `marsdevs-reviewer export-learning` | Export learned conventions |
+| `marsdevs-reviewer reset-learning` | Reset learning data |
 | `marsdevs-reviewer --help` | Show help message |
 
 ---
+
+## 🧠 Learning System
+
+MarsDevs learns from your decisions to improve over time:
+
+- **Accepted fixes** increase pattern confidence
+- **Rejected fixes** decrease pattern confidence  
+- **High confidence patterns** (>70%) skip API calls
+- **Learning data** stored locally in `.marsdevs/` directory
+
+Check your learning progress:
+```bash
+marsdevs-reviewer stats
+```
 
 ## ⚙️ Configuration
 
@@ -217,10 +235,16 @@ export MARSDEVS_DEBUG=1
 
 ```
 marsdevs_reviewer/
-├── __init__.py      # Package metadata
-├── reviewer.py      # Core review logic
-├── cli.py          # Command-line interface
-└── debug.py        # Debug utilities
+├── __init__.py          # Package metadata
+├── reviewer.py          # Core review logic
+├── cli.py              # Command-line interface
+├── debug.py            # Debug utilities
+└── learning/           # Machine learning system
+    ├── __init__.py
+    ├── learning_manager.py    # Manages persistent storage
+    ├── convention_extractor.py # Extracts patterns
+    ├── pattern_matcher.py     # Matches against learned patterns
+    └── models.py             # Data structures
 ```
 </details>
 
@@ -258,7 +282,7 @@ parser.add_argument('command',
 3. **Build package**: `python -m build`
 4. **Test on TestPyPI**: `python -m twine upload --repository testpypi dist/*`
 5. **Release**: `python -m twine upload dist/*`
-6. **Tag release**: `git tag -a v0.1.0 -m "Release v0.1.0"`
+6. **Tag release**: `git tag -a v1.1.0 -m "Release v1.1.0"`
 </details>
 
 ---

@@ -11,7 +11,7 @@ long_description = (this_directory / "README.md").read_text(encoding='utf-8')
 
 setup(
     name="marsdevs-reviewer",
-    version="1.0.0",
+    version="1.1.1",
     author="MarsDevs Team",
     author_email="team@marsdevs.com",
     description="AI-powered code review tool that learns from your repository",
@@ -27,7 +27,6 @@ setup(
         "Intended Audience :: Developers",
         "Topic :: Software Development :: Quality Assurance",
         "Topic :: Software Development :: Version Control :: Git",
-        "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
@@ -36,6 +35,7 @@ setup(
         "Programming Language :: Python :: 3.11",
         "Operating System :: OS Independent",
     ],
+    license="MIT",
     packages=find_packages(),
     python_requires=">=3.7",
     install_requires=[
