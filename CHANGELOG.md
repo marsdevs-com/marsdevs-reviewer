@@ -5,6 +5,16 @@ All notable changes to MarsDevs Code Reviewer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2024-01-18
+
+### Added
+- Comprehensive CHANGELOG.md for version tracking
+- Changelog reference in README.md
+- CHANGELOG.md included in package distribution via MANIFEST.in
+
+### Changed
+- Improved package documentation for PyPI users
+
 ## [1.1.2] - 2024-01-18
 
 ### Fixed
@@ -71,6 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Skips documentation and configuration files by default
 - Supports bypass with `git commit --no-verify`
 
+[1.1.3]: https://github.com/marsdevs-com/marsdevs-reviewer/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/marsdevs-com/marsdevs-reviewer/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/marsdevs-com/marsdevs-reviewer/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/marsdevs-com/marsdevs-reviewer/compare/v1.0.0...v1.1.0

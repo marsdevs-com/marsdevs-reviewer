@@ -11,7 +11,7 @@ long_description = (this_directory / "README.md").read_text(encoding='utf-8')
 
 setup(
     name="marsdevs-reviewer",
-    version="1.1.2",
+    version="1.1.3",
     author="MarsDevs Team",
     author_email="team@marsdevs.com",
     description="AI-powered code review tool that learns from your repository",
