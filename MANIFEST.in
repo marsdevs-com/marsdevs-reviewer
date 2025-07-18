@@ -1,4 +1,6 @@
 include README.md
+include CHANGELOG.md
+include LICENSE
 recursive-include marsdevs_reviewer *.py
 global-exclude __pycache__
 global-exclude *.py[co]

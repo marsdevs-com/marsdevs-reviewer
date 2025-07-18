@@ -287,6 +287,10 @@ parser.add_argument('command',
 
 ---
 
+## 📝 Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a detailed history of changes.
+
 ## 🤝 Contributing
 
 We welcome contributions! Here's how to help:
