@@ -16,6 +16,8 @@ import time
 from typing import List, Dict, Tuple, Optional
 from pathlib import Path
 import argparse
+import concurrent.futures
+import re
 
 # Import debug utilities if available
 try:
@@ -388,7 +390,7 @@ def apply_fix(filepath: str, issue: Dict[str, any]) -> bool:
 
 
 def interactive_fix_prompt(issue: Dict[str, any]) -> str:
-    """Present an issue and its fix to the user for approval."""
+    """Present an issue and its fix to the user for approval, including false positive feedback."""
     print("\n" + "-"*60)
     print(f"ISSUE: {issue['type'].upper()}")
     print(f"File: {issue['file']}")
@@ -418,10 +420,10 @@ def interactive_fix_prompt(issue: Dict[str, any]) -> str:
         return 'n'  # or 's' to skip, or 'y' to auto-apply
 
     while True:
-        response = input("\nApply this fix? (y)es / (n)o / (s)kip all / (q)uit: ").lower().strip()
-        if response in ['y', 'n', 's', 'q']:
+        response = input("\nApply this fix? (y)es / (n)o / (f)alse positive / (s)kip all / (q)uit: ").lower().strip()
+        if response in ['y', 'n', 'f', 's', 'q']:
             return response
-        print("Invalid input. Please enter y, n, s, or q.")
+        print("Invalid input. Please enter y, n, f, s, or q.")
 
 
 def format_review_output(review: Dict[str, any], fixes_applied: List[int]) -> Tuple[bool, str]:
@@ -516,6 +518,40 @@ def save_cached_review(cache_key: str, review: Dict[str, any]):
         pass  # Caching is optional
 
 
+def is_trivial_diff(diff: str) -> bool:
+    """
+    Returns True if the diff only contains whitespace, comments, or formatting changes.
+    Only checks added/modified lines (lines starting with '+', not '+++').
+    Supports Python, JS, TS, and C-like comments.
+    """
+    if not diff.strip():
+        return True
+    trivial = True
+    for line in diff.splitlines():
+        if not line.startswith('+') or line.startswith('+++'):
+            continue
+        code = line[1:].strip()
+        # Ignore empty lines
+        if code == '':
+            continue
+        # Ignore Python, shell, or config comments
+        if code.startswith('#'):
+            continue
+        # Ignore JS/TS/C/C++/Java comments
+        if code.startswith('//'):
+            continue
+        # Ignore block comment starts/ends (not perfect, but covers most)
+        if code.startswith('/*') or code.endswith('*/'):
+            continue
+        # Ignore only changes in indentation/whitespace
+        if re.match(r'^[\s]+$', code):
+            continue
+        # If the line has any non-comment, non-whitespace code, it's not trivial
+        trivial = False
+        break
+    return trivial
+
+
 def main(auto_apply_fixes=False):
     """Main pre-commit hook logic."""
     try:
@@ -544,6 +580,32 @@ def main(auto_apply_fixes=False):
             logger.info("No staged changes to review")
             print("No staged changes to review.")
             sys.exit(0)
+
+        # Pre-filter: skip API for trivial diffs
+        if is_trivial_diff(diff):
+            print("\n🟢 Only trivial changes detected (whitespace/comments/formatting). Skipping API review.")
+            # Optionally, run learning system if available
+            learned_issues = []
+            if LEARNING_ENABLED:
+                try:
+                    learning_manager = LearningManager()
+                    pattern_matcher = PatternMatcher(learning_manager)
+                    learned_issues = pattern_matcher.find_issues_with_learned_patterns(diff, files)
+                except Exception as e:
+                    logger.warning(f"Learning system error: {e}")
+            if not learned_issues:
+                print("✅ No convention issues found in trivial changes. Commit allowed.")
+                sys.exit(0)
+            else:
+                review = {
+                    'has_issues': True,
+                    'severity': 'low',
+                    'issues': learned_issues,
+                    'summary': f'Found {len(learned_issues)} issues based on learned repository patterns (trivial diff).'
+                }
+                should_allow, output = format_review_output(review, [])
+                print(output)
+                sys.exit(0 if should_allow else 1)
 
         # Skip review for certain file types
         skip_extensions = {'.md', '.txt', '.json', '.yml', '.yaml', '.lock', '.jpg', '.png', '.gif', '.svg'}
@@ -636,21 +698,37 @@ def main(auto_apply_fixes=False):
                 print("Using cached review results...")
                 review = cached_review
             else:
-                print("🔍 Reviewing staged changes against repository conventions...")
-                logger.info("Sending review request to AI")
-                # Review with AI
-                review = review_code_with_conventions(diff, files_to_review, conventions_context)
+                # --- Parallelize learning and API review if both are needed ---
+                if api_needed and learned_issues:
+                    print("🔍 Reviewing staged changes against repository conventions (parallel)...")
+                    logger.info("Sending review request to AI and running learning system in parallel")
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future_api = executor.submit(review_code_with_conventions, diff, files_to_review, conventions_context)
+                        future_learned = executor.submit(lambda: learned_issues)
+                        api_result = future_api.result()
+                        learned_result = future_learned.result()
+                    # Merge learned issues with API issues
+                    review = api_result
+                    if learned_result:
+                        review['issues'] = learned_result + review.get('issues', [])
+                        review['has_issues'] = True
+                elif api_needed:
+                    print("🔍 Reviewing staged changes against repository conventions...")
+                    logger.info("Sending review request to AI")
+                    review = review_code_with_conventions(diff, files_to_review, conventions_context)
+                else:
+                    # Only learned issues (should not happen here, but fallback)
+                    review = {
+                        'has_issues': bool(learned_issues),
+                        'severity': 'medium',
+                        'issues': learned_issues,
+                        'summary': f'Found {len(learned_issues)} issues based on learned repository patterns.'
+                    }
                 # Save to cache
                 save_cached_review(cache_key, review)
-                
-                # Merge learned issues with API issues
-                if learned_issues:
-                    review['issues'] = learned_issues + review.get('issues', [])
-                    review['has_issues'] = True
-                
                 # Update statistics
                 if learning_manager:
-                    learning_manager.update_statistics(api_called=True)
+                    learning_manager.update_statistics(api_called=api_needed)
 
         # If no issues, allow commit
         if not review.get('has_issues', False):
@@ -693,6 +771,21 @@ def main(auto_apply_fixes=False):
                             logger.warning(f"Failed to update learning: {e}")
                 else:
                     print("❌ Failed to apply fix.")
+            elif response == 'f':
+                print("Marked as not a problem (false positive). This will help improve future reviews.")
+                # Update learning system with false positive
+                if learning_manager and not issue.get('learned', False):
+                    try:
+                        reason = input("Optional: Why is this not a problem? (press Enter to skip): ")
+                        learning_manager.update_from_false_positive(
+                            issue_type=issue.get('type', 'convention'),
+                            original=issue.get('current_code', ''),
+                            file_path=issue['file'],
+                            reason=reason if reason else None
+                        )
+                        logger.info("Updated learning from false positive")
+                    except Exception as e:
+                        logger.warning(f"Failed to update learning (false positive): {e}")
             elif response == 's':
                 skip_all = True
                 print("Skipping all remaining fixes...")
@@ -714,6 +807,35 @@ def main(auto_apply_fixes=False):
                         logger.info("Updated learning from rejected fix")
                     except Exception as e:
                         logger.warning(f"Failed to update learning: {e}")
+
+        # After all issues, prompt for missed issues (false negatives)
+        if learning_manager and sys.stdin.isatty():
+            print("\n--- User Feedback: Missed Issues ---")
+            missed_prompt = input("Did the reviewer miss any issues? (m)ark missed / (c)ontinue: ").lower().strip()
+            while missed_prompt == 'm':
+                file = input("File where issue was missed: ").strip()
+                try:
+                    line_start = int(input("Start line number: ").strip())
+                    line_end = int(input("End line number: ").strip())
+                except ValueError:
+                    print("Invalid line numbers. Skipping this missed issue.")
+                    break
+                description = input("Describe the missed issue: ").strip()
+                code_snippet = input("Paste the code snippet (optional): ").strip()
+                suggested_fix = input("Suggested fix (optional): ").strip()
+                try:
+                    learning_manager.update_from_missed_issue(
+                        description=description,
+                        file=file,
+                        line_start=line_start,
+                        line_end=line_end,
+                        suggested_fix=suggested_fix if suggested_fix else None,
+                        code_snippet=code_snippet if code_snippet else None
+                    )
+                    print("Missed issue recorded. Thank you for your feedback!")
+                except Exception as e:
+                    print(f"Failed to record missed issue: {e}")
+                missed_prompt = input("Mark another missed issue? (m)ark missed / (c)ontinue: ").lower().strip()
 
         # Re-stage all modified files to ensure consistency
         if fixes_applied:

@@ -168,6 +168,54 @@ class LearningManager:
         self.save_learning()
         logger.info(f"Updated learning from rejected fix: {issue_type}")
     
+    def update_from_false_positive(self, issue_type: str, original: str, file_path: str, reason: str = None):
+        """Update learning based on user marking an issue as not a problem (false positive)."""
+        from .models import FalsePositive
+        learning = self.load_learning()
+        fp = FalsePositive(
+            timestamp=datetime.now().isoformat(),
+            issue_type=issue_type,
+            original=original,
+            file_type=Path(file_path).suffix,
+            file_path=file_path,
+            reason=reason
+        )
+        learning.false_positives.append(fp)
+        # Decrease pattern confidence if applicable
+        pattern_key = f"{issue_type}_{Path(file_path).suffix}"
+        if pattern_key in learning.patterns:
+            for pattern in learning.patterns[pattern_key]:
+                if pattern.pattern_name == issue_type:
+                    pattern.confidence = max(0.05, pattern.confidence - 0.3)
+                    pattern.last_seen = datetime.now().isoformat()
+        # Update statistics
+        if 'false_positives' not in learning.statistics:
+            learning.statistics['false_positives'] = 0
+        learning.statistics['false_positives'] += 1
+        self.save_learning()
+        logger.info(f"Updated learning from false positive: {issue_type}")
+
+    def update_from_missed_issue(self, description: str, file: str, line_start: int, line_end: int, suggested_fix: str = None, code_snippet: str = None):
+        """Update learning based on user reporting a missed issue (false negative)."""
+        from .models import MissedIssue
+        learning = self.load_learning()
+        missed = MissedIssue(
+            timestamp=datetime.now().isoformat(),
+            description=description,
+            file=file,
+            line_start=line_start,
+            line_end=line_end,
+            suggested_fix=suggested_fix,
+            code_snippet=code_snippet
+        )
+        learning.missed.append(missed)
+        # Update statistics
+        if 'missed_issues' not in learning.statistics:
+            learning.statistics['missed_issues'] = 0
+        learning.statistics['missed_issues'] += 1
+        self.save_learning()
+        logger.info(f"Updated learning from missed issue: {description}")
+    
     def get_learned_fix(self, issue_type: str, code: str, 
                        file_path: str) -> Optional[Tuple[str, float]]:
         """Get learned fix for given issue if confidence is high enough."""
