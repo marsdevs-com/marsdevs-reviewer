@@ -82,6 +82,57 @@ class Convention:
 
 
 @dataclass
+class FalsePositive:
+    """Represents a user-marked false positive (not a problem)."""
+    timestamp: str
+    issue_type: str
+    original: str
+    file_type: str
+    file_path: Optional[str] = None
+    reason: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'timestamp': self.timestamp,
+            'issue_type': self.issue_type,
+            'original': self.original,
+            'file_type': self.file_type,
+            'file_path': self.file_path,
+            'reason': self.reason
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'FalsePositive':
+        return cls(**data)
+
+@dataclass
+class MissedIssue:
+    """Represents a user-reported missed issue (false negative)."""
+    timestamp: str
+    description: str
+    file: str
+    line_start: int
+    line_end: int
+    suggested_fix: Optional[str] = None
+    code_snippet: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'timestamp': self.timestamp,
+            'description': self.description,
+            'file': self.file,
+            'line_start': self.line_start,
+            'line_end': self.line_end,
+            'suggested_fix': self.suggested_fix,
+            'code_snippet': self.code_snippet
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'MissedIssue':
+        return cls(**data)
+
+
+@dataclass
 class Learning:
     """Main learning data structure."""
     version: str = "1.0"
@@ -90,6 +141,8 @@ class Learning:
     conventions: Convention = field(default_factory=Convention)
     patterns: Dict[str, List[Pattern]] = field(default_factory=dict)
     fixes: Dict[str, List[Fix]] = field(default_factory=lambda: {'accepted': [], 'rejected': []})
+    false_positives: List[FalsePositive] = field(default_factory=list)
+    missed: List[MissedIssue] = field(default_factory=list)
     statistics: Dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self) -> Dict[str, Any]:
@@ -106,6 +159,8 @@ class Learning:
                 'accepted': [f.to_dict() for f in self.fixes['accepted']],
                 'rejected': [f.to_dict() for f in self.fixes['rejected']]
             },
+            'false_positives': [fp.to_dict() for fp in self.false_positives],
+            'missed': [m.to_dict() for m in self.missed],
             'statistics': self.statistics
         }
     
@@ -130,7 +185,10 @@ class Learning:
                 'accepted': [Fix.from_dict(f) for f in data['fixes'].get('accepted', [])],
                 'rejected': [Fix.from_dict(f) for f in data['fixes'].get('rejected', [])]
             }
-        
+        if 'false_positives' in data:
+            learning.false_positives = [FalsePositive.from_dict(fp) for fp in data['false_positives']]
+        if 'missed' in data:
+            learning.missed = [MissedIssue.from_dict(m) for m in data['missed']]
         learning.statistics = data.get('statistics', {})
         return learning
     
