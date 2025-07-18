@@ -15,6 +15,7 @@ import hashlib
 import time
 from typing import List, Dict, Tuple, Optional
 from pathlib import Path
+import argparse
 
 # Import debug utilities if available
 try:
@@ -411,6 +412,11 @@ def interactive_fix_prompt(issue: Dict[str, any]) -> str:
 
     print("-"*60)
 
+    if not sys.stdin.isatty():
+        print("Interactive prompt not available (not a TTY). Please run the reviewer manually for interactive review.")
+        print("For manual review you can run: marsdevs-reviewer review")
+        return 'n'  # or 's' to skip, or 'y' to auto-apply
+
     while True:
         response = input("\nApply this fix? (y)es / (n)o / (s)kip all / (q)uit: ").lower().strip()
         if response in ['y', 'n', 's', 'q']:
@@ -510,7 +516,7 @@ def save_cached_review(cache_key: str, review: Dict[str, any]):
         pass  # Caching is optional
 
 
-def main():
+def main(auto_apply_fixes=False):
     """Main pre-commit hook logic."""
     try:
         print("Running MarsDevs Code Reviewer...")
@@ -662,8 +668,10 @@ def main():
             if skip_all:
                 break
 
-            # Show the issue and get user decision
-            response = interactive_fix_prompt(issue)
+            if auto_apply_fixes:
+                response = 'y'
+            else:
+                response = interactive_fix_prompt(issue)
 
             if response == 'y':
                 print("Applying fix...")
@@ -752,4 +760,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--yes', action='store_true', help='Automatically apply all fixes')
+    args = parser.parse_args()
+
+    main(auto_apply_fixes=args.yes)
